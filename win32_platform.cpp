@@ -2,38 +2,81 @@
 #include <wingdi.h>
 
 bool isRunning = true;
-void* buffer_memory;
-int buffer_width;   
-int buffer_height;
-BITMAPINFO buffer_bitmap_info;
 
-LRESULT CALLBACK window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+struct RenderState {
+    void* memory;  
+    int height, width;
+
+    BITMAPINFO bitmapInfo;   
+};
+
+struct ImageState {
+    HDC DC;
+    HBITMAP bitmap;
+    HBITMAP oldBitmap;
+};
+
+RenderState renderState;
+ImageState imageState;
+
+void loadImage(const char* pathname) {
+    imageState.DC = CreateCompatibleDC(NULL);
+
+    imageState.bitmap = (HBITMAP)LoadImageA(
+        NULL, pathname,
+        IMAGE_BITMAP, 0, 0,
+        LR_DEFAULTSIZE | LR_LOADFROMFILE
+    );
+
+    imageState.oldBitmap = (HBITMAP)SelectObject(imageState.DC, imageState.bitmap);
+}
+
+void cleanImage() {
+    SelectObject(imageState.DC, imageState.oldBitmap);
+    DeleteObject(imageState.bitmap);
+    DeleteDC(imageState.DC);
+}
+
+void drawImage(HDC screen) {
+    BitBlt(screen, 0, 0, renderState.width, renderState.height, imageState.DC, 0, 0, SRCCOPY);
+}
+
+LRESULT CALLBACK wndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     LRESULT result = 0;
     
     switch (uMsg) {
         case WM_CLOSE:
         case WM_DESTROY: {
             isRunning = false;
+            DeleteObject(imageState.bitmap);
+            PostQuitMessage(0);
         } break;
 
         case WM_SIZE: {
             RECT rect;
             GetClientRect(hwnd, &rect);
-            buffer_width = rect.right - rect.left;
-            buffer_height = rect.bottom - rect.top;
+            renderState.width = rect.right - rect.left;
+            renderState.height = rect.bottom - rect.top;
 
-            int buffer_size = buffer_width*buffer_height*sizeof(unsigned int);
+            int bufferSize = renderState.width*renderState.height*sizeof(unsigned int);
 
-            if (buffer_memory)
-                VirtualFree(buffer_memory, 0, MEM_RELEASE);
-            buffer_memory = VirtualAlloc(0, buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            if (renderState.memory)
+                VirtualFree(renderState.memory, 0, MEM_RELEASE);
+            renderState.memory = VirtualAlloc(0, bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
-            buffer_bitmap_info.bmiHeader.biSize = sizeof(buffer_bitmap_info.bmiHeader);
-            buffer_bitmap_info.bmiHeader.biWidth = buffer_width;
-            buffer_bitmap_info.bmiHeader.biHeight = buffer_height;
-            buffer_bitmap_info.bmiHeader.biPlanes = 1;
-            buffer_bitmap_info.bmiHeader.biBitCount = 32;
-            buffer_bitmap_info.bmiHeader.biCompression = BI_RGB;
+            renderState.bitmapInfo.bmiHeader.biSize = sizeof(renderState.bitmapInfo.bmiHeader);
+            renderState.bitmapInfo.bmiHeader.biWidth = renderState.width;
+            renderState.bitmapInfo.bmiHeader.biHeight = renderState.height;
+            renderState.bitmapInfo.bmiHeader.biPlanes = 1;
+            renderState.bitmapInfo.bmiHeader.biBitCount = 32;
+            renderState.bitmapInfo.bmiHeader.biCompression = BI_RGB;
+        } break;
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC screen = BeginPaint(hwnd,&ps);
+            drawImage(screen);
+            EndPaint(hwnd,&ps);
         } break;
 
         default: {
@@ -46,25 +89,37 @@ LRESULT CALLBACK window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPa
     return result;
 }
 
-int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
+HWND createWindow(HINSTANCE inst) {
     // Create Window Class
-    WNDCLASS windows_class = {};
-    windows_class.style = CS_HREDRAW | CS_VREDRAW;
-    windows_class.lpszClassName = "Game Window Class";
-    windows_class.lpfnWndProc = window_callback;
+    WNDCLASSEX windowsClass = {0};
+    windowsClass.cbSize = sizeof(WNDCLASSEX);
+    windowsClass.hCursor = LoadCursor(NULL, IDC_ARROW);
+    windowsClass.hInstance = inst;
+    windowsClass.style = CS_HREDRAW | CS_VREDRAW;
+    windowsClass.lpszClassName = "Game Window Class";
+    windowsClass.lpfnWndProc = wndProc;
 
     // Register Class
-    RegisterClass(&windows_class);
+    RegisterClassEx(&windowsClass);
+
+    int style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    RECT rc = {0,0,renderState.width, renderState.height};      // desired rect
+    AdjustWindowRect(&rc,style,FALSE);
 
     // Create Window
-    HWND window = CreateWindow
+    return CreateWindow
     (
-    windows_class.lpszClassName,
+    windowsClass.lpszClassName,
     "My Window",
     WS_OVERLAPPEDWINDOW | WS_VISIBLE,
     CW_USEDEFAULT, CW_USEDEFAULT,
-    1280, 720, 0, 0, hInstance, 0
+    1280, 720, 0, 0, inst, 0
     );
+    
+}
+
+int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
+    HWND window = createWindow(hInstance);
 
     HDC hdc = GetDC(window);
 
@@ -76,13 +131,19 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             DispatchMessage(&message);
         }
         // Simulate
+        unsigned int* pixel = (unsigned int*)renderState.memory;
+        for(int y = 0; y < renderState.height; y++) {
+            for(int x = 0; x < renderState.width; x++) {
+                *pixel++ = 0xff00ff*x + 0xff00ff*y;
+            }
+        }
 
         // Render
         StretchDIBits
         (
-            hdc, 0, 0, buffer_width, buffer_height,
-            0, 0, buffer_width, buffer_height, buffer_memory,
-            &buffer_bitmap_info, DIB_RGB_COLORS, SRCCOPY
+            hdc, 0, 0, renderState.width, renderState.height,
+            0, 0, renderState.width, renderState.height, renderState.memory,
+            &renderState.bitmapInfo, DIB_RGB_COLORS, SRCCOPY
         );
     }
 
