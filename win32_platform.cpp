@@ -1,38 +1,13 @@
 #include "render.h"
+#include "image.h"
 
 #include <windows.h>
 #include <wingdi.h>
 
 bool isRunning = true;
-struct ImageState {
-    HDC DC;
-    HBITMAP bitmap;
-    HBITMAP oldBitmap;
-};
 
 ImageState imageState;
-
-void loadImage(const char* pathname) {
-    imageState.DC = CreateCompatibleDC(NULL);
-
-    imageState.bitmap = (HBITMAP)LoadImageA(
-        NULL, pathname,
-        IMAGE_BITMAP, 0, 0,
-        LR_DEFAULTSIZE | LR_LOADFROMFILE
-    );
-
-    imageState.oldBitmap = (HBITMAP)SelectObject(imageState.DC, imageState.bitmap);
-}
-
-void cleanImage() {
-    SelectObject(imageState.DC, imageState.oldBitmap);
-    DeleteObject(imageState.bitmap);
-    DeleteDC(imageState.DC);
-}
-
-void drawImage(HDC screen) {
-    BitBlt(screen, 0, 0, renderState.width, renderState.height, imageState.DC, 0, 0, SRCCOPY);
-}
+RenderState renderState;
 
 LRESULT CALLBACK wndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     LRESULT result = 0;
@@ -68,7 +43,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC screen = BeginPaint(hwnd,&ps);
-            drawImage(screen);
+            imageState.drawImage(screen, renderState);
             EndPaint(hwnd,&ps);
         } break;
 

@@ -1,3 +1,5 @@
+#pragma once
+
 #include <windows.h>
 
 struct RenderState {
@@ -6,5 +8,3 @@ struct RenderState {
 
     BITMAPINFO bitmapInfo;   
 };
-
-RenderState renderState;
