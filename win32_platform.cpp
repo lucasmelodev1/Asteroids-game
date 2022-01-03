@@ -1,22 +1,15 @@
+#include "render.h"
+
 #include <windows.h>
 #include <wingdi.h>
 
 bool isRunning = true;
-
-struct RenderState {
-    void* memory;  
-    int height, width;
-
-    BITMAPINFO bitmapInfo;   
-};
-
 struct ImageState {
     HDC DC;
     HBITMAP bitmap;
     HBITMAP oldBitmap;
 };
 
-RenderState renderState;
 ImageState imageState;
 
 void loadImage(const char* pathname) {
